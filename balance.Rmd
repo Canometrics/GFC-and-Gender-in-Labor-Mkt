@@ -1,0 +1,112 @@
+```{r}
+library(tidyverse)
+library(xtable)
+library(dplyr)
+```
+
+```{r}
+df_clean_2 <- read_csv("data/df_clean_2.csv")
+```
+
+```{r}
+df_clean_3 <- df_clean_2 %>%
+  mutate(
+    OCC_GROUP = case_when(
+      OCC >= 1   & OCC <= 960   ~ "Management/Business/Finance",
+      OCC >= 1000 & OCC <= 1540 ~ "STEM/Technical/Engineering",
+      OCC >= 1600 & OCC <= 1980 ~ "Science/Research",
+      OCC >= 2000 & OCC <= 2060 ~ "Social/Community Service",
+      OCC >= 2200 & OCC <= 2550 ~ "Education/Training/Library",
+      OCC >= 2600 & OCC <= 2960 ~ "Arts/Media/Communication",
+      OCC >= 3000 & OCC <= 3650 ~ "Health/Medical",
+      OCC >= 3700 & OCC <= 3960 ~ "Protective Service",
+      OCC >= 4000 & OCC <= 4650 ~ "Food/Personal Service",
+      OCC >= 4700 & OCC <= 5930 ~ "Sales/Office/Admin",
+      OCC >= 6000 & OCC <= 6130 ~ "Agriculture/Forestry/Fishing",
+      OCC >= 6200 & OCC <= 6760 ~ "Construction/Extraction",
+      OCC >= 7000 & OCC <= 7620 ~ "Maintenance/Repair",
+      OCC >= 7700 & OCC <= 8960 ~ "Production/Manufacturing",
+      OCC >= 9000 & OCC <= 9750 ~ "Transportation/Material Moving",
+      OCC == 9840               ~ "Armed Forces",
+      TRUE                      ~ "Other/Unknown"
+    )
+  )
+
+```
+
+```{r}
+
+# 1) Exclude these groups by default
+groups_exclude <- c("Armed Forces", "Other/Unknown")
+
+# 1a) Get occ groups with enough public/private variation
+occgrp_balanced <- df_clean_3 %>%
+  filter(!OCC_GROUP %in% groups_exclude) %>%
+  group_by(OCC_GROUP) %>%
+  summarise(
+    n = n(),
+    priv_share = mean(PRIVWKR == 1, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(priv_share > 0.05, priv_share < 0.95)
+
+# 2) Keep only those groups
+df_estimation <- df_clean_3 %>%
+  semi_join(occgrp_balanced, by = "OCC_GROUP")
+
+# 3) Check how many groups remain
+df_estimation %>% distinct(OCC_GROUP) %>% nrow()
+
+```
+
+```{r}
+write.csv(df_estimation, "data/df_estimation.csv", row.names = FALSE)
+```
+
+
+```{r}
+# Diagnostics
+occgrp <- df_clean_3 %>%
+  group_by(OCC_GROUP) %>%
+  summarise(
+    n = n(),
+    priv_share = mean(PRIVWKR == 1, na.rm = TRUE)
+  )
+
+occgrp %>%
+  arrange(priv_share) %>%
+  mutate(
+    priv_share = paste0(round(priv_share * 100, 1), "\\%"),
+    category = case_when(
+      priv_share < 0.5 ~ "Mostly Public",
+      priv_share >= 0.5 ~ "Mostly Private"
+    )
+  ) %>%
+  head(20)
+
+occgrp_balanced %>%
+  arrange(priv_share) %>%
+  mutate(
+    category = case_when(
+      priv_share < 0.5 ~ "Mostly Public",
+      priv_share >= 0.5 ~ "Mostly Private"
+    )
+  ) %>%
+  head(20)
+
+tab <- xtable(
+  occgrp,
+  caption = "Private-Sector Share by Occupation Group",
+  label   = "tab:occ-group-share",
+  align   = c("l","l","r","r") 
+)
+
+print(
+  tab,
+  include.rownames = FALSE,
+  booktabs = TRUE,
+  sanitize.text.function = identity, 
+  file = "figures/occ_group_table.tex",
+  type = "latex"
+)
+```

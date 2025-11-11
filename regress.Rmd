@@ -1,0 +1,252 @@
+```{r}
+library(tidyverse)
+library(xtable)
+library(dplyr)
+library(fixest)
+library(stringr)
+library(extrafont)
+```
+
+```{r}
+df_estimation <- read_csv("data/df_estimation.csv")
+```
+
+
+equation 1
+
+```{r}
+eq1 <- feols(
+  EMPLOYED ~ POSTTREAT * FEMALE +
+    AGE + EDUC +
+    factor(OCC_GROUP) + 
+    factor(NEWRACE) + 
+    NCHILD + 
+    factor(MARST) | STATEFIP,
+  data = df_estimation,
+  cluster = ~STATEFIP
+)
+
+etable(
+  eq1,
+  dict = c(
+    "POSTTREAT" = "Post-Treatment",
+    "FEMALE" = "Female",
+    "POSTTREAT:FEMALE" = "Post-Treatment × Female",
+    "AGE" = "Age",
+    "EDUC" = "Education",
+    "NCHILD" = "# of Children"
+  ),
+  fitstat = c("n", "r2"),
+  tex = TRUE,
+  style.tex = style.tex("aer"),
+  file = "tables/eq1.tex"
+)
+```
+
+equation 4
+
+```{r}
+
+eq2 <-  feols(
+    EMPLOYED ~ POSTTREAT * PRIVWKR * FEMALE  +
+      AGE  + EDUC + 
+      factor(OCC_GROUP) + 
+      factor(NEWRACE) + NCHILD + factor(MARST) |
+      STATEFIP,
+    data = df_estimation, cluster = ~STATEFIP)
+etable(
+  eq2,
+  dict = c(
+    "POSTTREAT" = "Post-Treatment",
+    "FEMALE" = "Female",
+    "POSTTREAT:FEMALE" = "Post-Treatment × Female",
+    "POSTTREAT:PRIVWKR:FEMALE" = "Post-Treatment × Female × Private Sector",
+    "AGE" = "Age",
+    "EDUC" = "Education",
+    "NCHILD" = "# of Children"
+  ),
+  fitstat = c("n", "r2"),
+  tex = TRUE,
+  style.tex = style.tex("aer"),
+  file = "tables/eq2.tex"
+)
+```
+
+combined
+
+```{r}
+
+# Equation 1
+eq1 <- feols(
+  EMPLOYED ~ POSTTREAT * FEMALE +
+    AGE + EDUC +
+    factor(OCC_GROUP) + 
+    factor(NEWRACE) + 
+    NCHILD + 
+    factor(MARST) | STATEFIP,
+  data = df_estimation,
+  cluster = ~STATEFIP
+)
+
+# Equation 4
+eq2 <- feols(
+  EMPLOYED ~ POSTTREAT * PRIVWKR * FEMALE +
+    AGE + EDUC +
+    factor(OCC_GROUP) + 
+    factor(NEWRACE) + 
+    NCHILD + 
+    factor(MARST) | STATEFIP,
+  data = df_estimation,
+  cluster = ~STATEFIP
+)
+
+# Combined LaTeX regression table
+etable(
+  list(
+    "DiD: Gender × Post" = eq1,
+    "DDD: Gender × Private × Post" = eq2
+  ),
+  dict = c(
+    "POSTTREAT" = "Post-Treatment",
+    "FEMALE" = "Female",
+    "PRIVWKR" = "Private Sector",
+    "POSTTREAT:FEMALE" = "Post-Treatment × Female",
+    "POSTTREAT:PRIVWKR:FEMALE" = "Post-Treatment × Female × Private Sector",
+    "AGE" = "Age",
+    "EDUC" = "Education",
+    "NCHILD" = "# of Children"
+  ),
+  fitstat = c("n", "r2"),
+  tex = TRUE,
+  style.tex = style.tex("aer"),
+  signif.code = c("***" = 0.01, "**" = 0.05, "*" = 0.1),
+  notes = c(
+    "Clustered standard errors at the state level (STATEFIP).",
+    "Controls include age, education, race, marital status, and occupation/sector fixed effects as indicated.",
+    "*, **, and *** denote significance at the 10%, 5%, and 1% levels, respectively."
+  ),
+  file = "tables/combined_eqs.tex"   # <-- saves your table
+)
+
+```
+
+event study
+
+```{r}
+
+# Event-study with Triple Interaction (Private × Female × Year)
+es_triple <- feols(
+  EMPLOYED ~ i(YEAR, ref = 2007) * PRIVWKR * FEMALE +
+    AGE + EDUC +
+    factor(OCC_GROUP) + factor(NEWRACE) + 
+    NCHILD + factor(MARST) | STATEFIP,
+  data = df_estimation, cluster = ~STATEFIP
+)
+
+# Event-study with Female × Year interaction only
+es_female <- feols(
+  EMPLOYED ~ i(YEAR, ref = 2007) * FEMALE +
+    AGE + EDUC +
+    factor(OCC_GROUP) + factor(NEWRACE) + 
+    NCHILD + factor(MARST) | STATEFIP,
+  data = df_estimation, cluster = ~STATEFIP
+)
+
+# Combined LaTeX regression table
+etable(
+  list(
+    "DiD: Gender × Post" = es_triple,
+    "DDD: Gender × Private × Post" = es_female
+  ),
+  dict = c(
+    "POSTTREAT" = "PostShock",
+    "FEMALE" = "Female",
+    "PRIVWKR" = "Private",
+    "POSTTREAT:FEMALE" = "Post-Treatment × Female"
+  ),
+  fitstat = c("n", "r2"),
+  tex = TRUE,
+  style.tex = style.tex("aer"),
+  signif.code = c("***" = 0.01, "**" = 0.05, "*" = 0.1),
+  notes = c(
+    "Clustered standard errors at the state level (STATEFIP).",
+    "Controls include age, education, race, marital status, and occupation/sector fixed effects as indicated.",
+    "*, **, and *** denote significance at the 10%, 5%, and 1% levels, respectively."
+  ),
+  file = "tables/event_table.tex"   # <-- saves your table
+)
+
+```
+
+```{r}
+
+# pick event-study terms by tokens
+pick_es_terms <- function(model, must_have = c("YEAR","FEMALE"), also_have = NULL) {
+  cn <- names(coef(model))
+  # Normalize names: collapse any non-alphanumeric to a single space for token tests
+  norm <- gsub("[^A-Za-z0-9]+", " ", cn)
+  has_tokens <- Reduce(`&`, lapply(must_have, function(tok) grepl(paste0("\\b", tok, "\\b"), norm, ignore.case = TRUE)))
+  if (!is.null(also_have)) {
+    has_tokens <- has_tokens & Reduce(`&`, lapply(also_have, function(tok) grepl(paste0("\\b", tok, "\\b"), norm, ignore.case = TRUE)))
+  }
+  # require a year-like 4-digit token
+  has_year <- grepl("\\b(19|20)\\d{2}\\b", norm)
+  cn[has_tokens & has_year]
+}
+
+tidy_es <- function(model, terms, label) {
+  co <- coef(model); V <- vcov(model); se <- sqrt(diag(V))
+  yrs <- as.integer(str_extract(terms, "(19|20)\\d{2}"))
+  stopifnot(length(terms) > 0, !any(is.na(yrs)))
+  tibble(
+    spec = label,
+    year = yrs,
+    term = terms,
+    estimate = unname(co[terms]),
+    se = unname(se[terms])
+  ) %>%
+    arrange(year) %>%
+    mutate(lo = estimate - 1.96*se,
+           hi = estimate + 1.96*se)
+}
+
+# ----- Build data frames safely -----
+# Female × Year (relative to 2007)
+terms_fem <- pick_es_terms(es_female, must_have = c("YEAR","FEMALE"))
+df_fem <- tidy_es(es_female, terms_fem, "Female × Year")
+
+# Private × Female × Year (relative to 2007)
+terms_triple <- pick_es_terms(es_triple, must_have = c("YEAR","FEMALE"), also_have = c("PRIVWKR"))
+df_triple <- tidy_es(es_triple, terms_triple, "Private × Female × Year")
+
+es_df <- bind_rows(df_fem, df_triple)
+
+```
+
+```{r}
+windowsFonts(Times = windowsFont("Times New Roman"))
+
+p <- ggplot(es_df, aes(x = year, y = estimate * 100)) +   # convert to %
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.3) +
+  geom_ribbon(aes(ymin = lo * 100, ymax = hi * 100), alpha = 0.15, fill = "grey70") +
+  geom_line(linewidth = 0.4) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ spec, ncol = 1, scales = "free_y") +
+  labs(
+    x = "Year (ref = 2007)",
+    y = "Effect on employment (percentage points)",
+    title = "Event-study coefficients with 95% confidence intervals"
+  ) +
+  theme_minimal(base_size = 20) +
+  theme(
+    text = element_text(family = "Times New Roman"),
+    panel.grid.major = element_blank(),   # remove major grid lines
+    panel.grid.minor = element_blank(),   # remove minor grid lines
+  )
+
+print(p)
+
+# Save the figure with embedded Times New Roman font
+ggsave("tables/eventstudy_times_clean.pdf", p, width = 6.5, height = 5.5, units = "in", device = cairo_pdf)
+
+```

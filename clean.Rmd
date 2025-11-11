@@ -1,0 +1,87 @@
+```{r}
+library(tidyverse)
+
+```
+
+```{r}
+df = read_csv("data/cps_00015.csv", show_col_types = FALSE)
+```
+
+```{r}
+df_clean <- df %>%
+  mutate(
+    # Employment indicator (EMPSTAT: 10 or 12 employed)
+    EMPLOYED = if_else(EMPSTAT %in% c(10L, 12L), 1L, 0L, missing = NA_integer_),
+
+    #REALWAGE = INCWAGE / (PCEPI / 81.375),
+
+    # Percentiles of real wages (1–100)
+    #WAGE_PERCENTILE = dplyr::ntile(REALWAGE, 100),
+
+    # Post indicator
+    POSTTREAT = YEAR > 2007,
+    FLAG_0708 = YEAR %in% c(2007, 2008),
+
+
+    # Female indicator
+    FEMALE = if_else(SEX == 2L, 1L, 0L, missing = NA_integer_),
+
+    # Worker class indicators
+    GOVWKR  = if_else(CLASSWKR %in% c(25L, 27L, 28L), 1L, 0L, missing = NA_integer_),
+    PRIVWKR = if_else(CLASSWKR %in% c(21L, 13L, 14L), 1L, 0L, missing = NA_integer_),
+
+    # Collapsed race categories (with Hispanic white split = 5)
+    NEWRACE = case_when(
+      RACE == 100L ~ 1L,                 # White
+      RACE == 200L ~ 2L,                 # Black
+      RACE == 651L ~ 3L,                 # Asian
+      RACE %in% c(300L, 652L) ~ 4L,      # Native
+      TRUE ~ 0L                           # Mixed/other baseline
+    ),
+    NEWRACE = if_else(NEWRACE == 1L & HISPAN == 1L, 5L, NEWRACE),
+
+    # Sector buckets from IND codes
+    SECTOR = case_when(
+      IND >= 6470 & IND <= 6780 ~ 1L,   # I.T
+      IND >= 6870 & IND <= 6992 ~ 2L,   # Finance
+      IND >= 7071 & IND <= 7190 ~ 3L,   # Real Estate
+      IND >= 7270 & IND <= 7490 ~ 4L,   # Tech Service
+      IND >= 7570 & IND <= 7790 ~ 5L,   # Admin/Management Service
+      IND >= 7860 & IND <= 7890 ~ 6L,   # Education
+      IND >= 7970 & IND <= 8390 ~ 7L,   # Health & Social Service
+      IND >= 8561 & IND <= 8590 ~ 8L,   # Entertainment
+      IND >= 8660 & IND <= 8690 ~ 9L,   # Food & Hospitality
+      IND >= 8770 & IND <= 9090 ~ 10L,  # Other Service
+      IND >= 9160 & IND <= 9590 ~ 11L,  # Public Service
+      TRUE ~ 0L                          # Not working / outside listed ranges
+    ),
+    SECTOR = factor(
+      SECTOR,
+      levels = 0:11,
+      labels = c(
+        "Not working","I.T","Fin","RelEst","TechService","MGMTService",
+        "Educ","HealthSocService","Entertainment","FoodHosp","OtherService","Public Service"
+      )
+    )
+  )
+
+```
+
+```{r}
+df_clean_2 <- df_clean %>%
+  mutate(
+    DROP_FLAG = if_else(EMPSTAT == 1 | AGE < 21 | AGE > 64, 1L, 0L, missing = 0L)
+  ) %>%
+  group_by(CPSIDP) %>%
+  mutate(
+    # mark 1 if the person ever violated age/labor-force condition
+    DROP_FLAG_PANEL = max(DROP_FLAG, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  filter(DROP_FLAG_PANEL == 0) %>%
+  filter(YEAR <= 2011)
+```
+
+```{r}
+write.csv(df_clean_2, "data/df_clean_2.csv", row.names = FALSE)
+```
